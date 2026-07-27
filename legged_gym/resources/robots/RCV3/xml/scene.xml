@@ -1,0 +1,163 @@
+<mujoco model="RCV3 scene">
+  <include file="RCV3.xml"/>
+
+  <!--
+    机器人本体已经在 RCV3.xml 中改成 floating base，并设置了标准站立初始高度，
+    因此 scene 不再需要通过下移地面来“迁就”模型位置。
+    这里把 statistic 中心恢复到更接近常规站立机器人的高度，便于默认视角显示。
+  -->
+  <statistic center="0 0 0.25" extent="0.8"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="-130" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 2.2" dir="0 0 -1" directional="true"/>
+    <!--
+      采用大方形综合场地，而不是线性长条测试带。
+      外围用低围挡圈出边界，内部按区域组织多种地形：
+      1. 中央出生平地区
+      2. 左上斜坡区
+      3. 右上粗糙凹凸不平路
+      4. 左下规则台阶区
+      5. 右下高台与复杂组合障碍区
+      6. 单独一条 30cm 挡板
+      这样更像一个真实测试场，机器人可以在方形区域内自由切换不同类型障碍。
+    -->
+    <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+
+    <!-- 外围围挡：用四面低墙形成方形边界，避免机器人跑出测试区域。 -->
+    <geom name="wall_north" type="box" pos="0  6.20 0.25" size="6.60 0.10 0.25" rgba="0.62 0.62 0.64 1" friction="1.0 0.02 0.02"/>
+    <geom name="wall_south" type="box" pos="0 -6.20 0.25" size="6.60 0.10 0.25" rgba="0.62 0.62 0.64 1" friction="1.0 0.02 0.02"/>
+    <geom name="wall_east"  type="box" pos="6.20 0  0.25" size="0.10 6.20 0.25" rgba="0.62 0.62 0.64 1" friction="1.0 0.02 0.02"/>
+    <geom name="wall_west"  type="box" pos="-6.20 0 0.25" size="0.10 6.20 0.25" rgba="0.62 0.62 0.64 1" friction="1.0 0.02 0.02"/>
+
+    <!-- 中央出生平地区：留出较干净的站立与起步空间，避免初始化直接压在障碍上。 -->
+    <geom name="spawn_pad" type="box" pos="0 0 0.02" size="1.20 1.00 0.02" rgba="0.35 0.40 0.44 1" friction="1.0 0.02 0.02"/>
+
+    <!-- 左上缓坡长楼梯：9 级上行 + 平台 + 9 级下行，单级 3cm，踏步更长。 -->
+    <geom name="stairs_gentle_nw_up_1"  type="box" pos="-5.10 4.10 0.015" size="0.17 0.95 0.015" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_2"  type="box" pos="-4.76 4.10 0.030" size="0.17 0.95 0.030" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_3"  type="box" pos="-4.42 4.10 0.045" size="0.17 0.95 0.045" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_4"  type="box" pos="-4.08 4.10 0.060" size="0.17 0.95 0.060" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_5"  type="box" pos="-3.74 4.10 0.075" size="0.17 0.95 0.075" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_6"  type="box" pos="-3.40 4.10 0.090" size="0.17 0.95 0.090" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_7"  type="box" pos="-3.06 4.10 0.105" size="0.17 0.95 0.105" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_8"  type="box" pos="-2.72 4.10 0.120" size="0.17 0.95 0.120" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_up_9"  type="box" pos="-2.38 4.10 0.135" size="0.17 0.95 0.135" rgba="0.50 0.50 0.54 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_landing" type="box" pos="-1.87 4.10 0.135" size="0.34 0.95 0.135" rgba="0.56 0.56 0.60 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_1" type="box" pos="-1.36 4.10 0.135" size="0.17 0.95 0.135" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_2" type="box" pos="-1.02 4.10 0.120" size="0.17 0.95 0.120" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_3" type="box" pos="-0.68 4.10 0.105" size="0.17 0.95 0.105" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_4" type="box" pos="-0.34 4.10 0.090" size="0.17 0.95 0.090" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_5" type="box" pos="0.00 4.10 0.075" size="0.17 0.95 0.075" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_6" type="box" pos="0.34 4.10 0.060" size="0.17 0.95 0.060" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_7" type="box" pos="0.68 4.10 0.045" size="0.17 0.95 0.045" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_8" type="box" pos="1.02 4.10 0.030" size="0.17 0.95 0.030" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_gentle_nw_down_9" type="box" pos="1.36 4.10 0.015" size="0.17 0.95 0.015" rgba="0.46 0.46 0.50 1" friction="1.1 0.02 0.02"/>
+
+    <!-- 右上中坡楼梯：7 级上行 + 平台 + 7 级下行，单级 5cm，坡度中等。 -->
+    <geom name="stairs_medium_ne_up_1"  type="box" pos="4.00 1.60 0.025" size="0.90 0.13 0.025" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_up_2"  type="box" pos="4.00 1.86 0.050" size="0.90 0.13 0.050" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_up_3"  type="box" pos="4.00 2.12 0.075" size="0.90 0.13 0.075" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_up_4"  type="box" pos="4.00 2.38 0.100" size="0.90 0.13 0.100" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_up_5"  type="box" pos="4.00 2.64 0.125" size="0.90 0.13 0.125" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_up_6"  type="box" pos="4.00 2.90 0.150" size="0.90 0.13 0.150" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_up_7"  type="box" pos="4.00 3.16 0.175" size="0.90 0.13 0.175" rgba="0.44 0.48 0.44 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_landing" type="box" pos="4.00 3.55 0.175" size="0.90 0.26 0.175" rgba="0.48 0.52 0.48 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_1" type="box" pos="4.00 4.07 0.175" size="0.90 0.13 0.175" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_2" type="box" pos="4.00 4.33 0.150" size="0.90 0.13 0.150" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_3" type="box" pos="4.00 4.59 0.125" size="0.90 0.13 0.125" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_4" type="box" pos="4.00 4.85 0.100" size="0.90 0.13 0.100" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_5" type="box" pos="4.00 5.11 0.075" size="0.90 0.13 0.075" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_6" type="box" pos="4.00 5.37 0.050" size="0.90 0.13 0.050" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+    <geom name="stairs_medium_ne_down_7" type="box" pos="4.00 5.63 0.025" size="0.90 0.13 0.025" rgba="0.38 0.42 0.38 1" friction="1.1 0.02 0.02"/>
+
+    <!-- 左下陡坡楼梯：8 级上行 + 平台 + 8 级下行，单级 7cm，踏步更短。 -->
+    <geom name="stairs_steep_sw_up_1"  type="box" pos="-5.11 -3.75 0.035" size="0.12 0.95 0.035" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_2"  type="box" pos="-4.87 -3.75 0.070" size="0.12 0.95 0.070" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_3"  type="box" pos="-4.63 -3.75 0.105" size="0.12 0.95 0.105" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_4"  type="box" pos="-4.39 -3.75 0.140" size="0.12 0.95 0.140" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_5"  type="box" pos="-4.15 -3.75 0.175" size="0.12 0.95 0.175" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_6"  type="box" pos="-3.91 -3.75 0.210" size="0.12 0.95 0.210" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_7"  type="box" pos="-3.67 -3.75 0.245" size="0.12 0.95 0.245" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_up_8"  type="box" pos="-3.43 -3.75 0.280" size="0.12 0.95 0.280" rgba="0.58 0.50 0.40 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_landing" type="box" pos="-3.03 -3.75 0.280" size="0.28 0.95 0.280" rgba="0.62 0.54 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_1" type="box" pos="-2.51 -3.75 0.280" size="0.12 0.95 0.280" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_2" type="box" pos="-2.27 -3.75 0.245" size="0.12 0.95 0.245" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_3" type="box" pos="-2.03 -3.75 0.210" size="0.12 0.95 0.210" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_4" type="box" pos="-1.79 -3.75 0.175" size="0.12 0.95 0.175" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_5" type="box" pos="-1.55 -3.75 0.140" size="0.12 0.95 0.140" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_6" type="box" pos="-1.31 -3.75 0.105" size="0.12 0.95 0.105" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_7" type="box" pos="-1.07 -3.75 0.070" size="0.12 0.95 0.070" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_steep_sw_down_8" type="box" pos="-0.83 -3.75 0.035" size="0.12 0.95 0.035" rgba="0.52 0.45 0.36 1" friction="1.15 0.02 0.02"/>
+
+    <!-- 右下变步高楼梯：8 级上行 + 平台 + 8 级下行，单级抬升 4cm 到 10cm，不超过 20cm。 -->
+    <geom name="stairs_mixed_se_up_1"  type="box" pos="3.20 -5.45 0.020" size="0.90 0.11 0.020" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_2"  type="box" pos="3.20 -5.23 0.040" size="0.90 0.11 0.040" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_3"  type="box" pos="3.20 -5.01 0.065" size="0.90 0.11 0.065" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_4"  type="box" pos="3.20 -4.79 0.095" size="0.90 0.11 0.095" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_5"  type="box" pos="3.20 -4.57 0.130" size="0.90 0.11 0.130" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_6"  type="box" pos="3.20 -4.35 0.170" size="0.90 0.11 0.170" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_7"  type="box" pos="3.20 -4.13 0.215" size="0.90 0.11 0.215" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_up_8"  type="box" pos="3.20 -3.91 0.265" size="0.90 0.11 0.265" rgba="0.40 0.44 0.50 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_landing" type="box" pos="3.20 -3.58 0.265" size="0.90 0.22 0.265" rgba="0.45 0.49 0.55 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_1" type="box" pos="3.20 -3.25 0.265" size="0.90 0.11 0.265" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_2" type="box" pos="3.20 -3.03 0.215" size="0.90 0.11 0.215" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_3" type="box" pos="3.20 -2.81 0.170" size="0.90 0.11 0.170" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_4" type="box" pos="3.20 -2.59 0.130" size="0.90 0.11 0.130" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_5" type="box" pos="3.20 -2.37 0.095" size="0.90 0.11 0.095" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_6" type="box" pos="3.20 -2.15 0.065" size="0.90 0.11 0.065" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_7" type="box" pos="3.20 -1.93 0.040" size="0.90 0.11 0.040" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+    <geom name="stairs_mixed_se_down_8" type="box" pos="3.20 -1.71 0.020" size="0.90 0.11 0.020" rgba="0.34 0.38 0.44 1" friction="1.15 0.02 0.02"/>
+
+    <!-- 中左更陡楼梯：6 级上行 + 平台 + 6 级下行，单级 10cm。 -->
+    <geom name="stairs_sharp_west_up_1"  type="box" pos="-4.60 -1.05 0.050" size="0.55 0.10 0.050" rgba="0.60 0.52 0.44 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_up_2"  type="box" pos="-4.60 -0.85 0.100" size="0.55 0.10 0.100" rgba="0.60 0.52 0.44 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_up_3"  type="box" pos="-4.60 -0.65 0.150" size="0.55 0.10 0.150" rgba="0.60 0.52 0.44 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_up_4"  type="box" pos="-4.60 -0.45 0.200" size="0.55 0.10 0.200" rgba="0.60 0.52 0.44 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_up_5"  type="box" pos="-4.60 -0.25 0.250" size="0.55 0.10 0.250" rgba="0.60 0.52 0.44 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_up_6"  type="box" pos="-4.60 -0.05 0.300" size="0.55 0.10 0.300" rgba="0.60 0.52 0.44 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_landing" type="box" pos="-4.60 0.25 0.300" size="0.55 0.20 0.300" rgba="0.66 0.58 0.48 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_down_1" type="box" pos="-4.60 0.65 0.300" size="0.55 0.10 0.300" rgba="0.54 0.47 0.39 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_down_2" type="box" pos="-4.60 0.85 0.250" size="0.55 0.10 0.250" rgba="0.54 0.47 0.39 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_down_3" type="box" pos="-4.60 1.05 0.200" size="0.55 0.10 0.200" rgba="0.54 0.47 0.39 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_down_4" type="box" pos="-4.60 1.25 0.150" size="0.55 0.10 0.150" rgba="0.54 0.47 0.39 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_down_5" type="box" pos="-4.60 1.45 0.100" size="0.55 0.10 0.100" rgba="0.54 0.47 0.39 1" friction="1.18 0.02 0.02"/>
+    <geom name="stairs_sharp_west_down_6" type="box" pos="-4.60 1.65 0.050" size="0.55 0.10 0.050" rgba="0.54 0.47 0.39 1" friction="1.18 0.02 0.02"/>
+
+    <!-- 中右高陡楼梯：5 级上行 + 平台 + 5 级下行，单级 15cm。 -->
+    <geom name="stairs_high_east_up_1"  type="box" pos="1.90 1.55 0.075" size="0.11 0.55 0.075" rgba="0.46 0.50 0.56 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_up_2"  type="box" pos="2.12 1.55 0.150" size="0.11 0.55 0.150" rgba="0.46 0.50 0.56 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_up_3"  type="box" pos="2.34 1.55 0.225" size="0.11 0.55 0.225" rgba="0.46 0.50 0.56 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_up_4"  type="box" pos="2.56 1.55 0.300" size="0.11 0.55 0.300" rgba="0.46 0.50 0.56 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_up_5"  type="box" pos="2.78 1.55 0.375" size="0.11 0.55 0.375" rgba="0.46 0.50 0.56 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_landing" type="box" pos="3.11 1.55 0.375" size="0.22 0.55 0.375" rgba="0.52 0.56 0.62 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_down_1" type="box" pos="3.44 1.55 0.375" size="0.11 0.55 0.375" rgba="0.40 0.44 0.50 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_down_2" type="box" pos="3.66 1.55 0.300" size="0.11 0.55 0.300" rgba="0.40 0.44 0.50 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_down_3" type="box" pos="3.88 1.55 0.225" size="0.11 0.55 0.225" rgba="0.40 0.44 0.50 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_down_4" type="box" pos="4.10 1.55 0.150" size="0.11 0.55 0.150" rgba="0.40 0.44 0.50 1" friction="1.20 0.02 0.02"/>
+    <geom name="stairs_high_east_down_5" type="box" pos="4.32 1.55 0.075" size="0.11 0.55 0.075" rgba="0.40 0.44 0.50 1" friction="1.20 0.02 0.02"/>
+
+    <!-- 中央偏南极陡楼梯：4 级上行 + 平台 + 4 级下行，最陡单级 25cm。 -->
+    <geom name="stairs_extreme_south_up_1"  type="box" pos="-1.10 -1.65 0.125" size="0.10 0.50 0.125" rgba="0.62 0.44 0.40 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_up_2"  type="box" pos="-0.90 -1.65 0.250" size="0.10 0.50 0.250" rgba="0.62 0.44 0.40 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_up_3"  type="box" pos="-0.70 -1.65 0.375" size="0.10 0.50 0.375" rgba="0.62 0.44 0.40 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_up_4"  type="box" pos="-0.50 -1.65 0.500" size="0.10 0.50 0.500" rgba="0.62 0.44 0.40 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_landing" type="box" pos="-0.20 -1.65 0.500" size="0.20 0.50 0.500" rgba="0.70 0.50 0.46 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_down_1" type="box" pos="0.10 -1.65 0.500" size="0.10 0.50 0.500" rgba="0.56 0.40 0.36 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_down_2" type="box" pos="0.30 -1.65 0.375" size="0.10 0.50 0.375" rgba="0.56 0.40 0.36 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_down_3" type="box" pos="0.50 -1.65 0.250" size="0.10 0.50 0.250" rgba="0.56 0.40 0.36 1" friction="1.22 0.02 0.02"/>
+    <geom name="stairs_extreme_south_down_4" type="box" pos="0.70 -1.65 0.125" size="0.10 0.50 0.125" rgba="0.56 0.40 0.36 1" friction="1.22 0.02 0.02"/>
+  </worldbody>
+
+</mujoco>
