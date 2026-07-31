@@ -129,8 +129,9 @@ def get_keyboard_cmd() -> np.ndarray:
     return np.array([vx, vy, yaw], dtype=np.float32)
 
 # ======================== 配置 ========================
-MODEL_PATH = "/home/kang/Desktop/RC_blind_terrain/legged_gym/resources/robots/RCV3/xml/scene.xml"
-POLICY_PATH = "/home/kang/Desktop/RC_blind_terrain/legged_gym/logs/blindrough3/exported/policies/policy.pt"
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(_SCRIPT_DIR, "resources", "robots", "RCV3", "xml", "scene.xml")
+POLICY_PATH = os.path.join(_SCRIPT_DIR, "logs", "blindplane", "Jul31_14-43-25_",  "model_1200.pt")
 
 DT = 0.02           # 控制频率 50Hz
 DECIMATION = 4       # 与训练一致
