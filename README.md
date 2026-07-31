@@ -270,4 +270,8 @@ python legged_gym/scripts/play.py --task rc
 
 # Sim2Sim 验证（需修改 sim2sim.py 中的 MODEL_PATH 和 POLICY_PATH）
 python legged_gym/sim2sim.py
+
+#开启可视化监督训练
+cd ~/VScode_files/12dof-dog-main/monitor/backend
+python app.py
 ```

@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { io } from 'socket.io-client'
 import { TrainingControl } from './components/TrainingControl'
-import { MetricsPanel } from './components/MetricsPanel'
-import { LossPanel } from './components/LossPanel'
-import { RewardChart } from './components/RewardChart'
+import { StatusBar } from './components/StatusBar'
+import { CoreCharts } from './components/CoreCharts'
+import { LossCharts } from './components/LossCharts'
 import { RewardBreakdown } from './components/RewardBreakdown'
+import { RewardGrid } from './components/RewardGrid'
 import { TrainingLog } from './components/TrainingLog'
 import './index.css'
 
@@ -16,15 +17,19 @@ function App() {
     paused: false,
     render_mode: false,
     current_iteration: 0,
-    total_iterations: 100000
+    total_iterations: 100000,
+    start_time: null,
+    elapsed_seconds: 0,
   })
   const [metrics, setMetrics] = useState({
     mean_reward: [],
     mean_episode_length: [],
+    action_noise_std: [],
     value_loss: [],
     surrogate_loss: [],
     estimation_loss: [],
-    swap_loss: []
+    swap_loss: [],
+    iterations: [],
   })
   const [rewards, setRewards] = useState({})
   const [logs, setLogs] = useState([])
@@ -58,6 +63,11 @@ function App() {
         current_iteration: data.current,
         total_iterations: data.total
       }))
+      // 记录迭代次数
+      setMetrics(prev => ({
+        ...prev,
+        iterations: [...prev.iterations.slice(-199), data.current]
+      }))
     })
 
     newSocket.on('metrics_update', (data) => {
@@ -68,7 +78,7 @@ function App() {
         const newMetrics = { ...prev }
         Object.keys(data).forEach(key => {
           if (key in newMetrics && Array.isArray(newMetrics[key])) {
-            newMetrics[key] = [...newMetrics[key].slice(-99), data[key]]
+            newMetrics[key] = [...newMetrics[key].slice(-199), data[key]]
           }
         })
         return newMetrics
@@ -83,7 +93,7 @@ function App() {
             if (!newRewards[rewName]) {
               newRewards[rewName] = []
             }
-            newRewards[rewName] = [...newRewards[rewName].slice(-99), data[key]]
+            newRewards[rewName] = [...newRewards[rewName].slice(-199), data[key]]
           }
         })
         return newRewards
@@ -122,25 +132,10 @@ function App() {
     }
   }, [socket])
 
-  // 准备图表数据
-  const chartData = metrics.mean_reward.map((_, index) => ({
-    iteration: index * 100,
-    reward: metrics.mean_reward[index] || 0,
-    episode_length: metrics.mean_episode_length[index] || 0
-  }))
-
-  const lossData = metrics.value_loss.map((_, index) => ({
-    iteration: index * 100,
-    value_loss: metrics.value_loss[index] || 0,
-    surrogate_loss: metrics.surrogate_loss[index] || 0,
-    estimation_loss: metrics.estimation_loss[index] || 0,
-    swap_loss: metrics.swap_loss[index] || 0
-  }))
-
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6 lg:p-8">
+    <div className="min-h-screen bg-background">
       {/* 头部 */}
-      <header className="mb-6">
+      <header className="p-4 pb-0">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -159,37 +154,40 @@ function App() {
         </div>
       </header>
 
-      {/* 主要内容 */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 左侧：控制和指标 */}
-        <div className="lg:col-span-1 space-y-6">
-          {/* 训练控制 */}
+      {/* 主要内容 - 左右两栏 */}
+      <div className="flex gap-4 p-4">
+        {/* 左侧：训练控制 (固定宽度，不滚动) */}
+        <div className="w-72 flex-shrink-0">
           <TrainingControl
             status={status}
             onStart={handleStart}
             onStop={handleStop}
             onPause={handlePause}
           />
-
-          {/* 核心指标 */}
-          <MetricsPanel
-            currentMetrics={currentMetrics}
-            status={status}
-          />
-
-          {/* 损失函数 */}
-          <LossPanel currentMetrics={currentMetrics} />
         </div>
 
-        {/* 右侧：图表和日志 */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* 奖励曲线 */}
-          <RewardChart data={chartData} />
+        {/* 右侧：数据展示区 (可滚动) */}
+        <div className="flex-1 space-y-4 min-w-0">
+          {/* 区域1: 顶部状态栏 */}
+          <StatusBar status={status} currentMetrics={currentMetrics} />
 
-          {/* 奖励项分解 */}
+          {/* 区域2+3: 核心曲线 + 损失曲线 (并排) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2">
+              <CoreCharts metrics={metrics} />
+            </div>
+            <div className="lg:col-span-1">
+              <LossCharts metrics={metrics} />
+            </div>
+          </div>
+
+          {/* 区域4: 最新奖励条形图 */}
           <RewardBreakdown rewards={rewards} currentMetrics={currentMetrics} />
 
-          {/* 训练日志 */}
+          {/* 区域5: 奖励细节网格 */}
+          <RewardGrid rewards={rewards} />
+
+          {/* 训练日志 (位置不变，在底部) */}
           <TrainingLog logs={logs} />
         </div>
       </div>

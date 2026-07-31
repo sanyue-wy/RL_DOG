@@ -29,12 +29,17 @@ class TrainManager:
             'iterations': [],
             'mean_reward': [],
             'mean_episode_length': [],
+            'action_noise_std': [],
             'value_loss': [],
             'surrogate_loss': [],
             'estimation_loss': [],
             'swap_loss': [],
+            'collection_time': [],
+            'learning_time': [],
+            'steps_per_sec': [],
             'rewards': {}
         }
+        self.start_time = None  # 训练开始时间戳
 
     def _emit_sync(self, event, data):
         """在线程中同步发送 Socket.IO 事件"""
@@ -82,6 +87,7 @@ class TrainManager:
             self.running = True
             self.render_mode = render
             self.paused = False
+            self.start_time = datetime.now()
 
             # 启动输出读取线程
             thread = threading.Thread(target=self._read_output, daemon=True)
@@ -130,12 +136,18 @@ class TrainManager:
 
     def get_status(self):
         """获取训练状态"""
+        elapsed = 0
+        if self.start_time and self.running:
+            elapsed = (datetime.now() - self.start_time).total_seconds()
+
         return {
             'running': self.running,
             'paused': self.paused,
             'render_mode': self.render_mode,
             'current_iteration': self.current_iteration,
-            'total_iterations': self.total_iterations
+            'total_iterations': self.total_iterations,
+            'start_time': self.start_time.isoformat() if self.start_time else None,
+            'elapsed_seconds': round(elapsed, 1)
         }
 
     def get_metrics_history(self):
@@ -172,6 +184,8 @@ class TrainManager:
                 self.current_iteration = int(match.group(1))
                 self.total_iterations = int(match.group(2))
                 self.metrics_history['iterations'].append(self.current_iteration)
+                if len(self.metrics_history['iterations']) > 200:
+                    self.metrics_history['iterations'] = self.metrics_history['iterations'][-200:]
                 self._emit_sync('iteration_update', {
                     'current': self.current_iteration,
                     'total': self.total_iterations
@@ -186,7 +200,18 @@ class TrainManager:
                 'estimation_loss': r'Estimation loss:\s*([-\d.]+)',
                 'swap_loss': r'Swap loss:\s*([-\d.]+)',
                 'action_noise_std': r'Mean action noise std:\s*([-\d.]+)',
+                'total_time': r'Total time:\s*([-\d.]+)s',
+                'iteration_time': r'Iteration time:\s*([-\d.]+)s',
+                'eta': r'ETA:\s*([-\d.]+)s',
+                'total_timesteps': r'Total timesteps:\s*(\d+)',
             }
+
+            # 特殊处理: 从 Computation 行解析 steps/s, collection_time, learning_time
+            comp_match = re.search(r'Computation:\s*(\d+)\s*steps/s\s*\(collection:\s*([\d.]+)s,\s*learning\s*([\d.]+)s\)', line)
+            if comp_match:
+                metrics['steps_per_sec'] = float(comp_match.group(1))
+                metrics['collection_time'] = float(comp_match.group(2))
+                metrics['learning_time'] = float(comp_match.group(3))
 
             for key, pattern in patterns.items():
                 match = re.search(pattern, line)
@@ -195,6 +220,9 @@ class TrainManager:
                     metrics[key] = value
                     if key in self.metrics_history:
                         self.metrics_history[key].append(value)
+                    # 限制历史数据长度，防止内存溢出
+                    if key in self.metrics_history and len(self.metrics_history[key]) > 200:
+                        self.metrics_history[key] = self.metrics_history[key][-200:]
 
             # 解析奖励项
             rew_match = re.search(r'Mean episode rew_(\w+):\s*([-\d.]+)', line)
@@ -205,6 +233,9 @@ class TrainManager:
                 if rew_name not in self.metrics_history['rewards']:
                     self.metrics_history['rewards'][rew_name] = []
                 self.metrics_history['rewards'][rew_name].append(rew_value)
+                # 限制奖励历史数据长度
+                if len(self.metrics_history['rewards'][rew_name]) > 200:
+                    self.metrics_history['rewards'][rew_name] = self.metrics_history['rewards'][rew_name][-200:]
 
             if metrics:
                 print(f"[Parsed] {list(metrics.keys())}")

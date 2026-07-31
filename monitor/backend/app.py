@@ -65,6 +65,10 @@ async def get_metrics():
 # 挂载静态文件
 if static_dir.exists():
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    # 挂载 assets 目录到 /assets 路径
+    assets_dir = static_dir / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
 # 创建 Socket.IO ASGI 应用
