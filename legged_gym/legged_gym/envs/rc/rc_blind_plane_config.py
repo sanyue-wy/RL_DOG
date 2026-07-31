@@ -263,7 +263,7 @@ class RCBlindPlaneCfgPPO(LeggedRobotCfgPPO):
     class runner( LeggedRobotCfgPPO.runner ):
         policy_class_name = 'HIMActorCritic'  # 策略类名
         algorithm_class_name = 'HIMPPO'  # 算法类名
-        num_steps_per_env = 48 # 每次迭代每个环境采样的步数
+        num_steps_per_env = 24 # 每次迭代每个环境采样的步数
         max_iterations = 100000 # 最大策略更新迭代次数
 
         # logging
