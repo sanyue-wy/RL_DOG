@@ -16,7 +16,7 @@ class RCBlindPlaneCfg(LeggedRobotCfg):
 
     # 地形配置
     class terrain(LeggedRobotCfg.terrain):
-        mesh_type = 'plane' # 地形网格类型；这里使用三角网格地形，适合生成坡、楼梯、高台、坑洞等复杂盲走地形
+        mesh_type = 'trimesh' # 地形网格类型；使用三角网格地形，包含坡、楼梯、高台、坑洞等复杂地形
         horizontal_scale = 0.1 # 地形横向分辨率，单位米；值越小，坡面边缘、踏块边界、沟壑轮廓会越细致
         vertical_scale = 0.005 # 地形纵向分辨率，单位米；值越小，高台、楼梯、坑洞的高度量化越精细
         border_size = 25 # 地形外围平地区域宽度，单位米；用于给整张训练地形留出边界缓冲，避免机器人刷在地图边缘

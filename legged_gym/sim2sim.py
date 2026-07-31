@@ -2,11 +2,17 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import time
 import os
+import sys
+import argparse
 import pygame
+import copy
 
 import math
+from pathlib import Path
 
 
 def wrap_to_pi(angle):
@@ -104,8 +110,16 @@ def init_keyboard():
     return screen
 
 
+# ======================== 配置常量（跳跃机依赖） ========================
+DEFAULT_HEIGHT_CMD = 0.26  # 默认站立高度目标（米）
+# 注意：根据训练配置选择正确的COMMANDS_SCALE
+# - 有高度命令(height_command=True): [2.0, 2.0, 0.25, 4.0]
+# - 无高度命令(height_command=False): [2.0, 2.0, 0.25]
+COMMANDS_SCALE = np.array([2.0, 2.0, 0.25, 4.0], dtype=np.float32)
+
+
 def get_keyboard_cmd() -> np.ndarray:
-    """从键盘读取线速度指令和偏航角速度指令。"""
+    """从键盘读取线速度、偏航角速度指令（3维）。"""
     pygame.event.pump()
     keys = pygame.key.get_pressed()
 
@@ -128,19 +142,148 @@ def get_keyboard_cmd() -> np.ndarray:
 
     return np.array([vx, vy, yaw], dtype=np.float32)
 
+
+# ======================== 跳跃状态机 ========================
+class JumpController:
+    """
+    按住 Z 蹲下蓄力，松开 Z 起跳。用于上楼梯/跨越障碍。
+
+    流程：
+      按住 Z  → 蹲伏蓄力（高度 0.12m，可一直按住）
+      松开 Z  → 蹬起 → 腾空 → 落地 → 回到正常
+
+    蹬起/腾空/落地 序列（按控制步计数，每步 0.02s）:
+      蹬起  8步 (0.16s)  → 高度 0.40m，向前冲
+      腾空 10步 (0.20s)  → 高度 0.38m，向前冲
+      落地 15步 (0.30s)  → 高度渐回 0.26m
+    """
+    PHASE_IDLE    = 0
+    PHASE_CROUCH  = 1   # 按住 Z 蓄力
+    PHASE_LAUNCH  = 2   # 松开 Z 蹬起
+    PHASE_AIR     = 3   # 腾空
+    PHASE_LAND    = 4   # 落地过渡
+
+    # 蹬起→腾空→落地 的时长（控制步数）
+    LAUNCH_STEPS = 8
+    AIR_STEPS    = 10
+    LAND_STEPS   = 15
+
+    CROUCH_HEIGHT  = 0.12   # 蹲伏高度
+    LAUNCH_HEIGHT  = 0.40   # 蹬起高度
+    AIR_HEIGHT     = 0.38   # 腾空高度
+    LAUNCH_VX      = 1.5    # 蹬起前进速度
+    AIR_VX         = 1.2    # 腾空前进速度
+    LAND_VX        = 0.5    # 落地前进速度
+
+    def __init__(self, has_height_cmd=True):
+        self.phase = self.PHASE_IDLE
+        self.step_counter = 0
+        self.land_start_height = DEFAULT_HEIGHT_CMD
+        self.has_height_cmd = has_height_cmd
+        self.cmd_dim = 4 if has_height_cmd else 3
+
+    def update(self, cmd_in: np.ndarray) -> np.ndarray:
+        """
+        每个控制步调用一次。输入原始 cmd [vx, vy, yaw]，
+        输出修改后的 cmd [vx, vy, yaw] 或 [vx, vy, yaw, height_cmd]。
+        """
+        keys = pygame.key.get_pressed()
+        z_held = keys[pygame.K_z]
+
+        cmd = np.zeros(self.cmd_dim, dtype=np.float32)
+        cmd[0] = cmd_in[0]
+        cmd[1] = cmd_in[1]
+        cmd[2] = cmd_in[2]
+
+        # ── IDLE：等待按 Z ──
+        if self.phase == self.PHASE_IDLE:
+            if z_held:
+                self.phase = self.PHASE_CROUCH
+                self.step_counter = 0
+            if self.has_height_cmd:
+                cmd[3] = DEFAULT_HEIGHT_CMD
+            return cmd
+
+        # ── CROUCH：按住 Z 蹲伏蓄力 ──
+        if self.phase == self.PHASE_CROUCH:
+            if self.has_height_cmd:
+                cmd[3] = self.CROUCH_HEIGHT
+            # 前进速度降低，准备起跳
+            cmd[0] = cmd_in[0] * 0.5
+            if not z_held:
+                # 松开 Z → 起跳
+                self.phase = self.PHASE_LAUNCH
+                self.step_counter = 0
+            return cmd
+
+        # ── LAUNCH / AIR / LAND：自动序列 ──
+        self.step_counter += 1
+
+        if self.phase == self.PHASE_LAUNCH:
+            if self.has_height_cmd:
+                cmd[3] = self.LAUNCH_HEIGHT
+            cmd[0] = max(cmd_in[0], self.LAUNCH_VX)
+            if self.step_counter >= self.LAUNCH_STEPS:
+                self.land_start_height = self.LAUNCH_HEIGHT
+                self.phase = self.PHASE_AIR
+                self.step_counter = 0
+
+        elif self.phase == self.PHASE_AIR:
+            if self.has_height_cmd:
+                cmd[3] = self.AIR_HEIGHT
+            cmd[0] = max(cmd_in[0], self.AIR_VX)
+            if self.step_counter >= self.AIR_STEPS:
+                self.land_start_height = self.AIR_HEIGHT
+                self.phase = self.PHASE_LAND
+                self.step_counter = 0
+
+        elif self.phase == self.PHASE_LAND:
+            t = min(self.step_counter / self.LAND_STEPS, 1.0)
+            if self.has_height_cmd:
+                cmd[3] = self.land_start_height + (DEFAULT_HEIGHT_CMD - self.land_start_height) * t
+            cmd[0] = max(cmd_in[0], self.LAND_VX * (1.0 - t))
+            if self.step_counter >= self.LAND_STEPS:
+                self.phase = self.PHASE_IDLE
+                self.step_counter = 0
+
+        return cmd
+
 # ======================== 配置 ========================
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_PATH = os.path.join(_SCRIPT_DIR, "resources", "robots", "RCV3", "xml", "scene.xml")
-POLICY_PATH = os.path.join(_SCRIPT_DIR, "logs", "blindplane", "Jul31_14-43-25_",  "model_1200.pt")
+
+
+def find_latest_model():
+    """自动查找最新的模型文件（按修改时间）"""
+    logs_dir = Path(_SCRIPT_DIR) / "logs"
+    all_models = []
+
+    for model_file in logs_dir.rglob("model_*.pt"):
+        try:
+            iteration = int(model_file.stem.split('_')[1])
+            all_models.append((model_file, iteration, model_file.stat().st_mtime))
+        except (ValueError, IndexError):
+            continue
+
+    if not all_models:
+        return None
+
+    # 按修改时间排序，返回最新的
+    all_models.sort(key=lambda x: x[2], reverse=True)
+    return str(all_models[0][0])
 
 DT = 0.02           # 控制频率 50Hz
 DECIMATION = 4       # 与训练一致
 SIM_DT = DT / DECIMATION  # 仿真步长 0.005s
 
 NUM_ACTIONS = 12
-NUM_ONE_STEP_OBS = 45
+# 注意：根据训练配置选择正确的值
+# - 有高度命令(height_command=True): 46
+# - 无高度命令(height_command=False): 45
+# 当前模型训练时使用46维观测（有高度命令）
+NUM_ONE_STEP_OBS = 46   # 与训练配置一致
 OBS_HISTORY_LEN = 6
-NUM_OBS = NUM_ONE_STEP_OBS * OBS_HISTORY_LEN  # 270
+NUM_OBS = NUM_ONE_STEP_OBS * OBS_HISTORY_LEN  # 276
 
 CLIP_OBS = 100.0
 CLIP_ACTIONS = 100.0
@@ -155,8 +298,6 @@ OBS_SCALES = {
     'dof_vel':    0.05,
 }
 
-# commands 缩放（与训练 commands_scale 一致）
-COMMANDS_SCALE = np.array([2.0, 2.0, 0.25], dtype=np.float32)
 
 # Go2 默认站立关节角度（弧度），顺序与 MJCF 一致
 # FL_hip, FL_thigh, FL_calf, FR_hip, FR_thigh, FR_calf,
@@ -175,12 +316,15 @@ KD = np.full(NUM_ACTIONS, 0.8, dtype=np.float32)
 # 真机单关节最大力矩；与 MuJoCo XML 中的 actuator / joint 限幅保持一致
 TORQUE_LIMIT = 23.7
 
-# 手柄缺失时的原始命令输入 [vx, vy, yaw_rate]
-CMD = np.array([0.0, 0.0, 0.0], dtype=np.float32)
+# 原始命令输入 [vx, vy, yaw_rate, height_cmd]
+# 注意：有高度命令时使用4维
+CMD = np.array([0.0, 0.0, 0.0, DEFAULT_HEIGHT_CMD], dtype=np.float32)
 
 
 # ======================== 工具函数 ========================
-def get_obs(data, cmd, last_action):
+def get_obs(data, cmd, last_action, commands_scale=None):
+    if commands_scale is None:
+        commands_scale = COMMANDS_SCALE
     q = data.qpos.astype(np.float32).copy()
     dq = data.qvel.astype(np.float32).copy()
 
@@ -191,7 +335,7 @@ def get_obs(data, cmd, last_action):
     dof_vel = dq[6:18]
 
     obs = np.concatenate([
-        cmd.astype(np.float32) * COMMANDS_SCALE,
+        cmd.astype(np.float32) * commands_scale,
         gyro * OBS_SCALES["ang_vel"],
         projected_gravity,
         (dof_pos - DEFAULT_POS).astype(np.float32) * OBS_SCALES["dof_pos"],
@@ -202,33 +346,139 @@ def get_obs(data, cmd, last_action):
     return obs
 
 
-def build_obs_history(obs_history: np.ndarray, new_obs: np.ndarray) -> np.ndarray:
+def build_obs_history(obs_history: np.ndarray, new_obs: np.ndarray, num_one_step_obs: int = None) -> np.ndarray:
     """
     维护观测历史，最新帧在前（与训练一致）：
     obs_buf = [t, t-1, t-2, t-3, t-4, t-5]
     """
-    obs_history = np.roll(obs_history, NUM_ONE_STEP_OBS)
-    obs_history[:NUM_ONE_STEP_OBS] = new_obs
+    if num_one_step_obs is None:
+        num_one_step_obs = NUM_ONE_STEP_OBS
+    obs_history = np.roll(obs_history, num_one_step_obs)
+    obs_history[:num_one_step_obs] = new_obs
     return obs_history
+
+
+
+# ======================== 策略加载 ========================
+class PolicyExporterHIM(nn.Module):
+    """从 checkpoint 加载 actor + estimator.encoder 的推理模块。"""
+    def __init__(self, actor, estimator_encoder, num_one_step_obs=46):
+        super().__init__()
+        self.actor = actor
+        self.estimator = estimator_encoder
+        self.num_one_step_obs = num_one_step_obs
+
+    def forward(self, obs_history):
+        parts = self.estimator(obs_history)[:, 0:19]
+        vel, z = parts[..., :3], parts[..., 3:]
+        z = F.normalize(z, dim=-1, p=2.0)
+        return self.actor(torch.cat((obs_history[:, 0:self.num_one_step_obs], vel, z), dim=1))
+
+
+def load_policy(path, device):
+    """加载训练 checkpoint，返回 (policy模块, 模型配置dict)。
+    自动从权重维度推断观测配置。"""
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+    sd = ckpt['model_state_dict']
+
+    def build_sequential(prefix):
+        """从 state_dict 按 key 顺序重建 nn.Sequential（跳号 key，如 0,2,4,6）。"""
+        pfx = prefix + '.'
+        indices = sorted({int(k[len(pfx):].split('.')[0]) for k in sd if k.startswith(pfx) and k.endswith('.weight')})
+        layers = []
+        for idx, k_idx in enumerate(indices):
+            w = sd[f'{prefix}.{k_idx}.weight']
+            b = sd[f'{prefix}.{k_idx}.bias']
+            layers.append(nn.Linear(w.shape[1], w.shape[0]))
+            layers[-1].weight.data.copy_(w)
+            layers[-1].bias.data.copy_(b)
+            if idx < len(indices) - 1:
+                layers.append(nn.ELU())
+        return nn.Sequential(*layers)
+
+    actor = build_sequential('actor')
+    estimator_encoder = build_sequential('estimator.encoder')
+
+    # 从 estimator 第一层权重推断观测维度
+    est_input_dim = estimator_encoder[0].in_features  # e.g. 276 or 270
+    history_length = 6  # 固定历史长度
+    num_one_step_obs = est_input_dim // history_length  # 46 or 45
+    has_height_cmd = (num_one_step_obs == 46)
+
+    model_config = {
+        'est_input_dim': est_input_dim,
+        'num_one_step_obs': num_one_step_obs,
+        'num_obs': est_input_dim,
+        'history_length': history_length,
+        'has_height_cmd': has_height_cmd,
+        'commands_scale': np.array([2.0, 2.0, 0.25, 4.0] if has_height_cmd else [2.0, 2.0, 0.25], dtype=np.float32),
+        'cmd_dim': 4 if has_height_cmd else 3,
+    }
+
+    policy = PolicyExporterHIM(actor, estimator_encoder, num_one_step_obs)
+    policy.to(device)
+    policy.eval()
+    return policy, model_config
 
 
 # ======================== 主循环 ========================
 def main():
+    print("=" * 60)
+    print("🚀 Sim2Sim MuJoCo 验证程序启动")
+    print("=" * 60)
+
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='Sim2Sim MuJoCo验证')
+    parser.add_argument('--policy', type=str, default=None,
+                       help='策略文件路径（不指定则自动查找最新）')
+    args = parser.parse_args()
+
+    # 确定策略路径
+    if args.policy:
+        policy_path = args.policy
+        if not Path(policy_path).exists():
+            print(f"❌ 策略文件不存在: {policy_path}")
+            sys.exit(1)
+    else:
+        policy_path = find_latest_model()
+        if not policy_path:
+            print("❌ 没有找到任何策略文件")
+            sys.exit(1)
+        print(f"🔍 自动选择最新策略: {policy_path}")
+
+    print(f"🎯 使用策略: {policy_path}")
+
     # 初始化手柄
+    print("🎮 初始化输入设备...")
     gamepad = init_gamepad()
     keyboard_screen = None
     if gamepad is None:
         keyboard_screen = init_keyboard()
+        print("⌨️  键盘控制窗口已创建")
 
-    # 加载模型
+    # 加载MuJoCo模型
+    print(f"📦 加载MuJoCo模型: {MODEL_PATH}")
     model = mujoco.MjModel.from_xml_path(MODEL_PATH)
     data = mujoco.MjData(model)
     model.opt.timestep = SIM_DT
+    print("✅ MuJoCo模型加载成功")
 
-    # 加载策略
+    # 加载策略（自动检测模型配置）
+    print(f"🧠 加载策略: {policy_path}")
     device = torch.device('cpu')
-    policy = torch.jit.load(POLICY_PATH, map_location=device)
+    policy, model_config = load_policy(policy_path, device)
     policy.eval()
+
+    # 从模型配置中获取参数
+    num_one_step_obs = model_config['num_one_step_obs']
+    num_obs = model_config['num_obs']
+    commands_scale = model_config['commands_scale']
+    has_height_cmd = model_config['has_height_cmd']
+
+    print(f"✅ 策略加载成功")
+    print(f"   观测维度: {num_one_step_obs}/step, {num_obs} 总计")
+    print(f"   高度命令: {'是' if has_height_cmd else '否'}")
+    print(f"   命令缩放: {commands_scale}")
 
     # 初始化状态
     mujoco.mj_resetData(model, data)
@@ -239,13 +489,16 @@ def main():
 
     # 初始化
     last_action = np.zeros(NUM_ACTIONS, dtype=np.float32)
-    obs_history = np.zeros(NUM_OBS, dtype=np.float32)
+    obs_history = np.zeros(num_obs, dtype=np.float32)
     action = np.zeros(NUM_ACTIONS, dtype=np.float32)
-    cmd = CMD.copy()
+    if has_height_cmd:
+        cmd = np.array([0.0, 0.0, 0.0, DEFAULT_HEIGHT_CMD], dtype=np.float32)
+    else:
+        cmd = np.array([0.0, 0.0, 0.0], dtype=np.float32)
 
-    init_obs = get_obs(data, cmd, last_action)
+    init_obs = get_obs(data, cmd, last_action, commands_scale)
     for i in range(OBS_HISTORY_LEN):
-        obs_history = build_obs_history(obs_history, init_obs)
+        obs_history = build_obs_history(obs_history, init_obs, num_one_step_obs)
 
     print("=" * 50)
     if gamepad is not None:
@@ -258,11 +511,13 @@ def main():
         print("   W / S → 前进 / 后退")
         print("   A / D → 左移 / 右移")
         print("   Q / E → 左转 / 右转")
+        print("   Z     → 按住蹲下蓄力，松开起跳上台阶")
         print("   注意：需要先点击一下 pygame 小窗口，确保键盘焦点在控制窗口内")
     print("=" * 50)
 
     step_count = 0
     ctrl_count = 0
+    jump_ctrl = JumpController(has_height_cmd=has_height_cmd)
 
     with mujoco.viewer.launch_passive(model, data) as viewer:
         start_time = time.time()
@@ -271,17 +526,22 @@ def main():
             step_start = time.time()
 
             if step_count % DECIMATION == 0:
-                # 读取手柄指令
+                # 读取手柄/键盘指令
                 if gamepad is not None:
-                    cmd = get_gamepad_cmd(gamepad)
+                    vel_cmd = get_gamepad_cmd(gamepad)
+                    if has_height_cmd:
+                        cmd = np.array([vel_cmd[0], vel_cmd[1], vel_cmd[2], DEFAULT_HEIGHT_CMD], dtype=np.float32)
+                    else:
+                        cmd = np.array([vel_cmd[0], vel_cmd[1], vel_cmd[2]], dtype=np.float32)
                 else:
-                    cmd = get_keyboard_cmd()
+                    raw_cmd = get_keyboard_cmd()
+                    cmd = jump_ctrl.update(raw_cmd)
 
                 # 获取观测
-                current_obs = get_obs(data, cmd, last_action)
+                current_obs = get_obs(data, cmd, last_action, commands_scale)
 
                 # 更新历史
-                obs_history = build_obs_history(obs_history, current_obs)
+                obs_history = build_obs_history(obs_history, current_obs, num_one_step_obs)
 
                 # 策略推理
                 obs_input = np.clip(obs_history, -CLIP_OBS, CLIP_OBS)
@@ -306,27 +566,7 @@ def main():
             mujoco.mj_step(model, data)
             step_count += 1
 
-            # ========== 镜头跟随机器人朝向 ==========
-            robot_pos = data.qpos[:3].copy()
-            robot_quat = data.qpos[3:7].copy()  # [w, x, y, z]
-
-            # 从四元数提取 yaw 角
-            w, x, y, z = robot_quat
-            yaw = np.arctan2(2.0 * (w * z + x * y),
-                            1.0 - 2.0 * (y * y + z * z))
-            yaw_deg = np.degrees(yaw)
-
-            # 更新 lookat
-            viewer.cam.lookat[0] = robot_pos[0]
-            viewer.cam.lookat[1] = robot_pos[1]
-            viewer.cam.lookat[2] = robot_pos[2]
-
-            # 摄像机方位角跟随 yaw（偏移0度表示从背后看）
-            viewer.cam.azimuth = yaw_deg + 90.0
-            viewer.cam.elevation = -20.0
-            viewer.cam.distance = 3.0
-
-            # 同步渲染
+            # 同步渲染（相机用鼠标自由控制：左键旋转、滚轮缩放、中键平移）
             viewer.sync()
 
             # 实时同步
@@ -360,4 +600,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n👋 用户中断，退出仿真")
+    except Exception as e:
+        print(f"\n❌ 仿真出错: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

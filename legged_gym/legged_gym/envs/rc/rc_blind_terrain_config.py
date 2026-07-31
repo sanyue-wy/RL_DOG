@@ -264,7 +264,7 @@ class RCBlindTerrainCfgPPO(LeggedRobotCfgPPO):
         experiment_name = 'blindrough3'  # 实验名称；决定日志主目录名
         run_name = ''  # 当前运行名称；会拼接到日志目录名后面
         # load and resume
-        resume = True  # 是否从已有 checkpoint 恢复训练
+        resume = False  # 是否从已有 checkpoint 恢复训练（首次训练设为False）
         load_run = -1 # 要加载的 run；-1 表示自动选择最新 run
         checkpoint = -1 # 要加载的 checkpoint；-1 表示自动选择最新 checkpoint
         resume_path = None # 恢复路径；通常由 load_run 和 checkpoint 自动解析生成

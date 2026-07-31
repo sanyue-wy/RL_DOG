@@ -20,6 +20,9 @@ function App() {
     total_iterations: 100000,
     start_time: null,
     elapsed_seconds: 0,
+    current_task: 'rc',
+    current_task_name: 'RC Blind Plane',
+    sim2real_running: false,
   })
   const [metrics, setMetrics] = useState({
     mean_reward: [],
@@ -34,6 +37,16 @@ function App() {
   const [rewards, setRewards] = useState({})
   const [logs, setLogs] = useState([])
   const [currentMetrics, setCurrentMetrics] = useState({})
+
+  // 新增状态
+  const [tasks, setTasks] = useState({})
+  const [currentTask, setCurrentTask] = useState('rc')
+  const [sim2realRunning, setSim2realRunning] = useState(false)
+
+  // 策略选择相关状态
+  const [policies, setPolicies] = useState([])
+  const [selectedPolicy, setSelectedPolicy] = useState('')
+  const [isLoadingPolicies, setIsLoadingPolicies] = useState(false)
 
   // 初始化 Socket.IO 连接
   useEffect(() => {
@@ -104,7 +117,47 @@ function App() {
       setLogs(prev => [...prev.slice(-99), data.data])
     })
 
+    // 新增：任务列表
+    newSocket.on('tasks_list', (data) => {
+      console.log('Tasks list:', data)
+      setTasks(data.tasks)
+    })
+
+    // 新增：任务选择结果
+    newSocket.on('task_selected', (data) => {
+      console.log('Task selected:', data)
+      if (data.success) {
+        setCurrentTask(data.current_task)
+      }
+      setLogs(prev => [...prev.slice(-99), data.message])
+    })
+
+    // 新增：Sim2Real 状态
+    newSocket.on('sim2real_status', (data) => {
+      console.log('Sim2Real status:', data)
+      setSim2realRunning(data.sim2real_running)
+      setLogs(prev => [...prev.slice(-99), data.message])
+    })
+
+    // 新增：Sim2Real 输出
+    newSocket.on('sim2real_output', (data) => {
+      setLogs(prev => [...prev.slice(-99), `[Sim2Real] ${data.data}`])
+    })
+
+    // 新增：策略列表
+    newSocket.on('policies_list', (data) => {
+      console.log('Policies list:', data.policies)
+      setPolicies(data.policies || [])
+      setIsLoadingPolicies(false)
+    })
+
     setSocket(newSocket)
+
+    // 获取任务列表
+    newSocket.emit('get_tasks')
+
+    // 获取策略列表
+    newSocket.emit('get_policies')
 
     return () => {
       newSocket.close()
@@ -129,6 +182,40 @@ function App() {
   const handlePause = useCallback(() => {
     if (socket) {
       socket.emit('pause_training')
+    }
+  }, [socket])
+
+  // 新增：切换任务
+  const handleTaskChange = useCallback((taskName) => {
+    if (socket) {
+      socket.emit('select_task', { task: taskName })
+    }
+  }, [socket])
+
+  // 新增：启动 Sim2Real
+  const handleStartSim2Real = useCallback(() => {
+    if (socket) {
+      socket.emit('start_sim2real', { policy_path: selectedPolicy || null })
+    }
+  }, [socket, selectedPolicy])
+
+  // 新增：获取策略列表
+  const handleGetPolicies = useCallback(() => {
+    if (socket) {
+      setIsLoadingPolicies(true)
+      socket.emit('get_policies')
+    }
+  }, [socket])
+
+  // 新增：策略选择变化
+  const handlePolicyChange = useCallback((policyPath) => {
+    setSelectedPolicy(policyPath)
+  }, [])
+
+  // 新增：停止 Sim2Real
+  const handleStopSim2Real = useCallback(() => {
+    if (socket) {
+      socket.emit('stop_sim2real')
     }
   }, [socket])
 
@@ -163,6 +250,19 @@ function App() {
             onStart={handleStart}
             onStop={handleStop}
             onPause={handlePause}
+            // 新增 Props
+            tasks={tasks}
+            currentTask={currentTask}
+            onTaskChange={handleTaskChange}
+            onStartSim2Real={handleStartSim2Real}
+            onStopSim2Real={handleStopSim2Real}
+            sim2realRunning={sim2realRunning}
+            // 策略选择 Props
+            policies={policies}
+            selectedPolicy={selectedPolicy}
+            isLoadingPolicies={isLoadingPolicies}
+            onPolicyChange={handlePolicyChange}
+            onGetPolicies={handleGetPolicies}
           />
         </div>
 

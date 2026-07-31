@@ -130,6 +130,64 @@ async def handle_pause_training(sid):
     })
 
 
+@sio.on('get_tasks')
+async def handle_get_tasks(sid):
+    """获取可用任务列表"""
+    print(f"[Socket.IO] get_tasks received")
+    tasks = train_manager.get_available_tasks()
+    await sio.emit('tasks_list', {'tasks': tasks}, to=sid)
+
+
+@sio.on('select_task')
+async def handle_select_task(sid, data):
+    """选择训练任务"""
+    print(f"[Socket.IO] select_task received: {data}")
+    task_name = data.get('task', 'rc')
+    success, message = train_manager.set_current_task(task_name)
+    await sio.emit('task_selected', {
+        'success': success,
+        'message': message,
+        'current_task': train_manager.current_task
+    })
+
+
+@sio.on('get_policies')
+async def handle_get_policies(sid):
+    """获取可用策略列表"""
+    print(f"[Socket.IO] get_policies received")
+    try:
+        policies = train_manager.get_available_policies()
+        await sio.emit('policies_list', {'policies': policies}, to=sid)
+    except Exception as e:
+        print(f"[Socket.IO] get_policies error: {e}")
+        await sio.emit('policies_list', {'policies': [], 'error': str(e)}, to=sid)
+
+
+@sio.on('start_sim2real')
+async def handle_start_sim2real(sid, data):
+    """启动 Sim2Real 验证"""
+    print(f"[Socket.IO] start_sim2real received: {data}")
+    policy_path = data.get('policy_path', None)
+    success, message = train_manager.start_sim2real(policy_path)
+    await sio.emit('sim2real_status', {
+        'status': 'started' if success else 'error',
+        'message': message,
+        'sim2real_running': train_manager.sim2real_running
+    })
+
+
+@sio.on('stop_sim2real')
+async def handle_stop_sim2real(sid):
+    """停止 Sim2Real 验证"""
+    print(f"[Socket.IO] stop_sim2real received")
+    success, message = train_manager.stop_sim2real()
+    await sio.emit('sim2real_status', {
+        'status': 'stopped' if success else 'error',
+        'message': message,
+        'sim2real_running': train_manager.sim2real_running
+    })
+
+
 def open_browser():
     """延迟打开浏览器"""
     import time
